@@ -26,11 +26,13 @@ searches, 50.0% needed one try, 25.0% two, 12.5% three, and the mean was
 Each try is one SHA-256 and one on-curve test, and the on-curve test is
 nearly all of it. `solana-pubkey` answers it by asking curve25519-dalek to
 decompress the point, which computes a square root: a field exponentiation of
-about 254 squarings and a dozen multiplications. The hash, done with the
-CPU's SHA-256 instructions, is the small remainder.
+about 254 squarings and a dozen multiplications. On an AMD Ryzen 9 9950X
+(Zen 5) that takes about 2,400 ns, while a whole `create_program_address`
+(hash and test) takes 2,460 to 2,660 ns depending on the seeds: the hash,
+done with the CPU's SHA-256 instructions, is the small remainder.
 
-fastpda answers the same yes/no question without computing the root, at a
-fraction of the cost; the tables under Benchmarks have the numbers.
+fastpda answers the same yes/no question without computing the root, in about
+820 ns, so a search for a typical PDA drops from about 4.9 µs to about 1.8 µs.
 
 ## How it works
 
@@ -124,14 +126,89 @@ Per call, solana-pubkey against fastpda, on the same inputs:
 <!-- bench:start -->
 | CPU | on-curve test | create, ATA-like | find, ATA-like | find, pump-curve-like |
 |---|---|---|---|---|
-| AMD Ryzen 9 9950X (Zen 5) | pending | pending | pending | pending |
-| AMD Ryzen 9 7950X (Zen 4) | pending | pending | pending | pending |
+| AMD Ryzen 9 7950X (Zen 4) | 2,808 ns → **797 ns** (3.5x) | 2,910 ns → **907 ns** (3.2x) | 5,745 ns → **1,811 ns** (3.2x) | 5,758 ns → **1,802 ns** (3.2x) |
+| AMD Ryzen 9 9950X (Zen 5) | 2,395 ns → **817 ns** (2.9x) | 2,492 ns → **924 ns** (2.7x) | 4,896 ns → **1,844 ns** (2.7x) | 4,906 ns → **1,832 ns** (2.7x) |
 
 Each cell is solana-pubkey → fastpda per call, and the speedup.
+
+<details><summary>AMD Ryzen 9 7950X (Zen 4): every benchmark (rustc 1.97.1 (8bab26f4f 2026-07-14), default flags)</summary>
+
+| benchmark | case | solana-pubkey | fastpda | speedup |
+|---|---|--:|--:|--:|
+| on-curve test | - | 2,808 ns | 797 ns | 3.52x |
+| create_program_address | 1x8B | 2,873 ns | 876 ns | 3.28x |
+| create_program_address | 1x32B | 2,870 ns | 876 ns | 3.28x |
+| create_program_address | pump-curve-like | 2,873 ns | 880 ns | 3.27x |
+| create_program_address | ata-like | 2,910 ns | 907 ns | 3.21x |
+| create_program_address | 4x8B | 2,875 ns | 886 ns | 3.24x |
+| create_program_address | 4x32B | 2,900 ns | 906 ns | 3.20x |
+| create_program_address | 8x32B | 2,957 ns | 962 ns | 3.08x |
+| create_program_address | 15x8B | 2,920 ns | 926 ns | 3.15x |
+| create_program_address | 15x32B | 3,079 ns | 1,083 ns | 2.84x |
+| create_program_address | 16x8B | 2,921 ns | 926 ns | 3.15x |
+| create_program_address | 16x32B | 3,066 ns | 1,077 ns | 2.85x |
+| find_program_address | 1x8B | 5,535 ns | 1,723 ns | 3.21x |
+| find_program_address | 1x32B | 5,866 ns | 1,844 ns | 3.18x |
+| find_program_address | pump-curve-like | 5,758 ns | 1,802 ns | 3.20x |
+| find_program_address | ata-like | 5,745 ns | 1,811 ns | 3.17x |
+| find_program_address | 4x8B | 5,667 ns | 1,772 ns | 3.20x |
+| find_program_address | 4x32B | 6,057 ns | 1,868 ns | 3.24x |
+| find_program_address | 8x32B | 5,937 ns | 1,860 ns | 3.19x |
+| find_program_address | 15x8B | 6,038 ns | 1,901 ns | 3.18x |
+| find_program_address | 15x32B | 6,187 ns | 2,018 ns | 3.07x |
+| find_program_address, ATA-like, by tries | 1 try | 2,917 ns | 667 ns | 4.37x |
+| find_program_address, ATA-like, by tries | 2 tries | 5,848 ns | 1,538 ns | 3.80x |
+| find_program_address, ATA-like, by tries | 3 tries | 8,780 ns | 2,640 ns | 3.33x |
+| find_program_address, ATA-like, by tries | 4 tries | 11,715 ns | 3,586 ns | 3.27x |
+| find_program_address, ATA-like, by tries | 5 tries | 14,640 ns | 4,510 ns | 3.25x |
+| find_program_address, ATA-like, by tries | 6 tries | 17,586 ns | 5,419 ns | 3.25x |
+| find_program_address, ATA-like, by tries | 7 tries | 20,508 ns | 6,324 ns | 3.24x |
+| find_program_address, ATA-like, by tries | 8 tries | 23,445 ns | 7,229 ns | 3.24x |
+
+</details>
+
+<details><summary>AMD Ryzen 9 9950X (Zen 5): every benchmark (rustc 1.92.0 (ded5c06cf 2025-12-08), default flags)</summary>
+
+| benchmark | case | solana-pubkey | fastpda | speedup |
+|---|---|--:|--:|--:|
+| on-curve test | - | 2,395 ns | 817 ns | 2.93x |
+| create_program_address | 1x8B | 2,479 ns | 894 ns | 2.77x |
+| create_program_address | 1x32B | 2,465 ns | 894 ns | 2.76x |
+| create_program_address | pump-curve-like | 2,461 ns | 898 ns | 2.74x |
+| create_program_address | ata-like | 2,492 ns | 924 ns | 2.70x |
+| create_program_address | 4x8B | 2,466 ns | 902 ns | 2.74x |
+| create_program_address | 4x32B | 2,490 ns | 923 ns | 2.70x |
+| create_program_address | 8x32B | 2,545 ns | 974 ns | 2.61x |
+| create_program_address | 15x8B | 2,508 ns | 949 ns | 2.64x |
+| create_program_address | 15x32B | 2,658 ns | 1,097 ns | 2.42x |
+| create_program_address | 16x8B | 2,513 ns | 951 ns | 2.64x |
+| create_program_address | 16x32B | 2,654 ns | 1,091 ns | 2.43x |
+| find_program_address | 1x8B | 4,727 ns | 1,765 ns | 2.68x |
+| find_program_address | 1x32B | 4,999 ns | 1,864 ns | 2.68x |
+| find_program_address | pump-curve-like | 4,906 ns | 1,832 ns | 2.68x |
+| find_program_address | ata-like | 4,896 ns | 1,844 ns | 2.66x |
+| find_program_address | 4x8B | 4,823 ns | 1,813 ns | 2.66x |
+| find_program_address | 4x32B | 5,193 ns | 1,912 ns | 2.72x |
+| find_program_address | 8x32B | 5,077 ns | 1,894 ns | 2.68x |
+| find_program_address | 15x8B | 5,156 ns | 1,940 ns | 2.66x |
+| find_program_address | 15x32B | 5,335 ns | 2,051 ns | 2.60x |
+| find_program_address, ATA-like, by tries | 1 try | 2,485 ns | 645 ns | 3.85x |
+| find_program_address, ATA-like, by tries | 2 tries | 4,998 ns | 1,669 ns | 3.00x |
+| find_program_address, ATA-like, by tries | 3 tries | 7,492 ns | 2,633 ns | 2.85x |
+| find_program_address, ATA-like, by tries | 4 tries | 10,006 ns | 3,602 ns | 2.78x |
+| find_program_address, ATA-like, by tries | 5 tries | 12,485 ns | 4,534 ns | 2.75x |
+| find_program_address, ATA-like, by tries | 6 tries | 15,053 ns | 5,477 ns | 2.75x |
+| find_program_address, ATA-like, by tries | 7 tries | 17,512 ns | 6,445 ns | 2.72x |
+| find_program_address, ATA-like, by tries | 8 tries | 19,991 ns | 7,374 ns | 2.71x |
+
+</details>
 <!-- bench:end -->
 
-The two AMD machines are pending: their rows fill in when `bench/run.sh` is
-run on them and the CSVs are committed.
+The two AMD machines were measured on servers that were running other work:
+the benchmarks ran at the lowest scheduling priority (`nice -n 19`) pinned to
+8 of their 32 hardware threads, so their absolute numbers carry some noise,
+while every pair of figures shares the same conditions. The Zen 5 run used
+rustc 1.92.0, the Zen 4 run rustc 1.97.1.
 
 How they are measured: [criterion](https://github.com/criterion-rs/criterion.rs),
 50 samples of 3 seconds per benchmark, release build with fat LTO and the
